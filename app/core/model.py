@@ -41,6 +41,7 @@ def load_llm() -> HuggingFacePipeline:
         task="text-generation",
         model=model,
         tokenizer=tokenizer,
+        device=-1,
         max_new_tokens=model_cfg["max_new_tokens"],
         temperature=model_cfg["temperature"],
         top_p=model_cfg["top_p"],

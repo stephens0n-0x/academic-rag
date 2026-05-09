@@ -11,6 +11,7 @@ from langchain_huggingface import HuggingFacePipeline
 
 from app.core.config import config
 import time
+from pathlib import Path
 
 RAG_PROMPT = PromptTemplate.from_template("""
 You are a research assistant specializing in academic papers.
@@ -36,23 +37,39 @@ def load_pdf(file_path: str) -> List[Document]:
 
 import time
 
+import urllib.request
+
 def load_arxiv_paper(paper_id: str) -> List[Document]:
     """
-    Fetch an arXiv paper by ID and return its content as LangChain Documents.
-    Accepts both full URLs and bare IDs (e.g. '2305.14314' or 'https://arxiv.org/abs/2305.14314').
+    Download an arXiv paper PDF directly by URL and return as LangChain Documents.
+    Bypasses the arXiv API entirely to avoid rate limiting.
     """
     paper_id = paper_id.strip()
     if "arxiv.org" in paper_id:
         paper_id = paper_id.split("/")[-1]
 
-    # Respect arXiv rate limits — their API requires a delay between requests
-    time.sleep(config["arxiv"].get("delay_seconds", 3))
+    download_dir = Path(config["arxiv"]["download_dir"])
+    download_dir.mkdir(parents=True, exist_ok=True)
 
-    loader = ArxivLoader(
-        query=paper_id,
-        load_max_docs=1,
-    )
-    return loader.load()
+    pdf_path = download_dir / f"{paper_id}.pdf"
+
+    if not pdf_path.exists():
+        pdf_url = f"https://arxiv.org/pdf/{paper_id}"
+        print(f"[retriever] Downloading {pdf_url}...")
+        headers = {"User-Agent": "Mozilla/5.0"}
+        req = urllib.request.Request(pdf_url, headers=headers)
+        with urllib.request.urlopen(req) as response:
+            pdf_path.write_bytes(response.read())
+        print(f"[retriever] Saved to {pdf_path}")
+
+    loader = PyPDFLoader(str(pdf_path))
+    documents = loader.load()
+
+    for doc in documents:
+        doc.metadata["paper_id"] = paper_id
+        doc.metadata["source"] = f"https://arxiv.org/abs/{paper_id}"
+
+    return documents
 
 def search_arxiv(query: str) -> List[dict]:
     """
