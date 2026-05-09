@@ -1,5 +1,5 @@
-from pathlib import Path
 from typing import List, Tuple
+
 import arxiv
 from langchain_community.document_loaders import PyPDFLoader, ArxivLoader
 from langchain_core.documents import Document
@@ -8,11 +8,10 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFacePipeline
+
 from app.core.config import config
 
 
-# RAG prompt template — instructs the model to answer strictly from retrieved context
-# and acknowledge when the context is insufficient rather than hallucinating
 RAG_PROMPT = PromptTemplate.from_template("""
 You are a research assistant specializing in academic papers.
 Use only the following retrieved context to answer the question.
@@ -40,7 +39,6 @@ def load_arxiv_paper(paper_id: str) -> List[Document]:
     Fetch an arXiv paper by ID and return its content as LangChain Documents.
     Accepts both full URLs and bare IDs (e.g. '2305.14314' or 'https://arxiv.org/abs/2305.14314').
     """
-    # Strip URL prefix if a full arXiv URL was provided
     paper_id = paper_id.strip()
     if "arxiv.org" in paper_id:
         paper_id = paper_id.split("/")[-1]
@@ -52,16 +50,33 @@ def load_arxiv_paper(paper_id: str) -> List[Document]:
     return loader.load()
 
 
-@router.get("/search/arxiv", response_model=List[ArxivSearchResult])
-def search_arxiv_papers(query: str):
+def search_arxiv(query: str) -> List[dict]:
     """
-    Search arXiv by keyword and return paper metadata.
-    Does not index papers — use /index/arxiv to add a paper to the vector store.
+    Search arXiv by keyword and return paper metadata without downloading full text.
+    Used to let users discover relevant papers before indexing them.
     """
-    if not query.strip():
-        raise HTTPException(status_code=400, detail="Search query cannot be empty.")
+    client = arxiv.Client()
+    search = arxiv.Search(
+        query=query,
+        max_results=config["arxiv"]["max_results"],
+        sort_by=arxiv.SortCriterion.Relevance,
+    )
 
-    return search_arxiv(query)
+    results = []
+    for paper in client.results(search):
+        results.append({
+            "paper_id": paper.entry_id.split("/")[-1],
+            "title": paper.title,
+            "authors": [a.name for a in paper.authors],
+            "summary": paper.summary[:300] + "...",
+            "published": str(paper.published.date()),
+            "url": paper.entry_id,
+        })
+        if len(results) >= config["arxiv"]["max_results"]:
+            break
+
+    return results
+
 
 def format_retrieved_chunks(chunks: List[Document]) -> str:
     """Concatenate retrieved document chunks into a single context string."""

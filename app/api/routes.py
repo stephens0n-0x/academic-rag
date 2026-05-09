@@ -1,9 +1,9 @@
-import os
 import shutil
 from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app.rag.retriever import load_pdf, load_arxiv_paper, search_arxiv
@@ -48,8 +48,8 @@ router = APIRouter()
 
 def get_pipeline():
     """
-    FastAPI dependency that provides the shared RAGPipeline instance.
-    Imported and overridden in main.py at startup with the actual pipeline object.
+    FastAPI dependency providing the shared RAGPipeline instance.
+    Overridden at startup in main.py with the live pipeline object.
     """
     raise NotImplementedError("Pipeline dependency not initialized.")
 
@@ -63,7 +63,7 @@ def health_check():
 
 
 @router.post("/query", response_model=QueryResponse)
-def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
+async def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
     """
     Answer a question using retrieved context from indexed documents.
     Returns the generated answer and the source chunks that informed it.
@@ -71,7 +71,7 @@ def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    answer, sources = pipeline.query(request.question)
+    answer, sources = await run_in_threadpool(pipeline.query, request.question)
 
     return QueryResponse(
         question=request.question,
@@ -81,7 +81,7 @@ def query(request: QueryRequest, pipeline=Depends(get_pipeline)):
 
 
 @router.post("/index/pdf", response_model=IndexResponse)
-def index_pdf(file: UploadFile = File(...), pipeline=Depends(get_pipeline)):
+async def index_pdf(file: UploadFile = File(...), pipeline=Depends(get_pipeline)):
     """
     Upload and index a PDF document.
     The file is saved temporarily, parsed, chunked, and added to the vector store.
@@ -96,8 +96,8 @@ def index_pdf(file: UploadFile = File(...), pipeline=Depends(get_pipeline)):
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    documents = load_pdf(str(file_path))
-    chunk_count = pipeline.index_documents(documents)
+    documents = await run_in_threadpool(load_pdf, str(file_path))
+    chunk_count = await run_in_threadpool(pipeline.index_documents, documents)
 
     return IndexResponse(
         message=f"{file.filename} indexed successfully.",
@@ -106,12 +106,12 @@ def index_pdf(file: UploadFile = File(...), pipeline=Depends(get_pipeline)):
 
 
 @router.post("/index/arxiv", response_model=IndexResponse)
-def index_arxiv(request: ArxivIndexRequest, pipeline=Depends(get_pipeline)):
+async def index_arxiv(request: ArxivIndexRequest, pipeline=Depends(get_pipeline)):
     """
     Fetch an arXiv paper by ID and index it into the vector store.
     Accepts bare IDs (2305.14314) or full arXiv URLs.
     """
-    documents = load_arxiv_paper(request.paper_id)
+    documents = await run_in_threadpool(load_arxiv_paper, request.paper_id)
 
     if not documents:
         raise HTTPException(
@@ -119,7 +119,7 @@ def index_arxiv(request: ArxivIndexRequest, pipeline=Depends(get_pipeline)):
             detail=f"Could not fetch paper {request.paper_id} from arXiv."
         )
 
-    chunk_count = pipeline.index_documents(documents)
+    chunk_count = await run_in_threadpool(pipeline.index_documents, documents)
 
     return IndexResponse(
         message=f"Paper {request.paper_id} indexed successfully.",
@@ -128,7 +128,7 @@ def index_arxiv(request: ArxivIndexRequest, pipeline=Depends(get_pipeline)):
 
 
 @router.get("/search/arxiv", response_model=List[ArxivSearchResult])
-def search_arxiv_papers(query: str):
+async def search_arxiv_papers(query: str):
     """
     Search arXiv by keyword and return paper metadata.
     Does not index papers — use /index/arxiv to add a paper to the vector store.
@@ -136,12 +136,5 @@ def search_arxiv_papers(query: str):
     if not query.strip():
         raise HTTPException(status_code=400, detail="Search query cannot be empty.")
 
-    results = search_arxiv(query)
-
-    if not results:
-        raise HTTPException(
-            status_code=404,
-            detail="No papers found for this query."
-        )
-
+    results = await run_in_threadpool(search_arxiv, query)
     return results
