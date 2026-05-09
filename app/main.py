@@ -13,24 +13,20 @@ from app.rag.pipeline import RAGPipeline
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Manage startup and shutdown of expensive resources.
-    The LLM and RAG pipeline are initialized once here and shared
-    across all requests via dependency injection.
-    """
     print("[startup] Loading LLM...")
     llm = load_llm()
 
     print("[startup] Initializing RAG pipeline...")
     pipeline = RAGPipeline(llm)
 
-    # Override the placeholder dependency in routes with the live pipeline
-    routes.get_pipeline = lambda: pipeline
+    # FastAPI's official dependency override mechanism
+    # replaces get_pipeline with a function that returns the live pipeline
+    app.dependency_overrides[routes.get_pipeline] = lambda: pipeline
 
     print("[startup] API ready.")
     yield
 
-    # Shutdown — release resources cleanly
+    app.dependency_overrides.clear()
     print("[shutdown] Cleaning up.")
 
 
