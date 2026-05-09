@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import List, Tuple
-
 import arxiv
 from langchain_community.document_loaders import PyPDFLoader, ArxivLoader
 from langchain_core.documents import Document
@@ -9,7 +8,6 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFacePipeline
-
 from app.core.config import config
 
 
@@ -60,4 +58,59 @@ def search_arxiv(query: str) -> List[dict]:
     Used to let users discover relevant papers before indexing them.
     """
     client = arxiv.Client()
-    search = arxiv.Search(
+    search = arxiv.Search()
+
+def format_retrieved_chunks(chunks: List[Document]) -> str:
+    """Concatenate retrieved document chunks into a single context string."""
+    return "\n\n---\n\n".join(
+        f"[Source: {doc.metadata.get('source', 'unknown')}, "
+        f"Page: {doc.metadata.get('page', 'N/A')}]\n{doc.page_content}"
+        for doc in chunks
+    )
+
+
+def build_rag_chain(vectorstore: Chroma, llm: HuggingFacePipeline):
+    """
+    Construct and return a LangChain RAG chain.
+    Chain flow: question → retriever → format context → prompt → LLM → parse output
+    """
+    retriever = vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": config["vectorstore"]["top_k"]},
+    )
+
+    chain = (
+        {
+            "context": retriever | format_retrieved_chunks,
+            "question": RunnablePassthrough(),
+        }
+        | RAG_PROMPT
+        | llm
+        | StrOutputParser()
+    )
+
+    return chain, retriever
+
+
+def retrieve_with_sources(
+    question: str,
+    chain,
+    retriever,
+) -> Tuple[str, List[dict]]:
+    """
+    Run the RAG chain and return both the generated answer and source metadata.
+    Sources allow the API to tell the user exactly which chunks informed the answer.
+    """
+    answer = chain.invoke(question)
+
+    source_chunks = retriever.invoke(question)
+    sources = [
+        {
+            "source": doc.metadata.get("source", "unknown"),
+            "page": doc.metadata.get("page", "N/A"),
+            "content_preview": doc.page_content[:150] + "...",
+        }
+        for doc in source_chunks
+    ]
+
+    return answer, sources
