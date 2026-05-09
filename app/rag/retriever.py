@@ -52,13 +52,16 @@ def load_arxiv_paper(paper_id: str) -> List[Document]:
     return loader.load()
 
 
-def search_arxiv(query: str) -> List[dict]:
+@router.get("/search/arxiv", response_model=List[ArxivSearchResult])
+def search_arxiv_papers(query: str):
     """
-    Search arXiv by keyword and return paper metadata without downloading full text.
-    Used to let users discover relevant papers before indexing them.
+    Search arXiv by keyword and return paper metadata.
+    Does not index papers — use /index/arxiv to add a paper to the vector store.
     """
-    client = arxiv.Client()
-    search = arxiv.Search()
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="Search query cannot be empty.")
+
+    return search_arxiv(query)
 
 def format_retrieved_chunks(chunks: List[Document]) -> str:
     """Concatenate retrieved document chunks into a single context string."""
