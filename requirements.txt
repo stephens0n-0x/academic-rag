@@ -26,3 +26,6 @@ accelerate>=0.28.0
 pyyaml>=6.0
 python-multipart>=0.0.9
 tqdm>=4.66.0
+
+chromadb>=0.4.24
+langchain-chroma>=0.1.0
