@@ -10,7 +10,7 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFacePipeline
 
 from app.core.config import config
-
+import time
 
 RAG_PROMPT = PromptTemplate.from_template("""
 You are a research assistant specializing in academic papers.
@@ -34,6 +34,8 @@ def load_pdf(file_path: str) -> List[Document]:
     return loader.load()
 
 
+import time
+
 def load_arxiv_paper(paper_id: str) -> List[Document]:
     """
     Fetch an arXiv paper by ID and return its content as LangChain Documents.
@@ -43,12 +45,14 @@ def load_arxiv_paper(paper_id: str) -> List[Document]:
     if "arxiv.org" in paper_id:
         paper_id = paper_id.split("/")[-1]
 
+    # Respect arXiv rate limits — their API requires a delay between requests
+    time.sleep(config["arxiv"].get("delay_seconds", 3))
+
     loader = ArxivLoader(
         query=paper_id,
         load_max_docs=1,
     )
     return loader.load()
-
 
 def search_arxiv(query: str) -> List[dict]:
     """
