@@ -1,0 +1,28 @@
+# API layer
+fastapi>=0.110.0
+uvicorn>=0.29.0          # ASGI server that runs FastAPI
+
+# LangChain ecosystem
+langchain>=0.1.16
+langchain-community>=0.0.38
+langchain-huggingface>=0.0.3
+
+# Vector database
+chromadb>=0.4.24
+
+# Embeddings
+sentence-transformers>=2.7.0
+
+# Document processing
+pypdf>=4.2.0             # PDF parsing
+arxiv>=2.1.0             # arXiv API client
+
+# Model inference
+transformers>=4.40.0
+torch>=2.1.0
+accelerate>=0.28.0
+
+# Utilities
+pyyaml>=6.0
+python-multipart>=0.0.9
+tqdm>=4.66.0
